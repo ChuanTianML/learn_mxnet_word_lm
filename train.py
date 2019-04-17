@@ -88,9 +88,14 @@ if __name__ == '__main__':
     test_data = CorpusIter(corpus.test, batch_size, bptt)
 
     # model
-    pred, states, state_names = rnn(bptt, ntokens, args.emsize, args.nhid,                      #构建rnn网络，返回pred的形状(batch_size*length, vocab_size)，states形状(num_layers, batch_size, length, hidden_size)，state_names形状(num_layers, 2)
+    pred, states, state_names = rnn(bptt, ntokens, args.emsize, args.nhid,                      #构建rnn网络，返回pred的形状(sbtt*batch_size, vocab_size)，states形状(num_layers, batch_size, length, hidden_size)，state_names形状(num_layers, 2)
                                     args.nlayers, args.dropout, batch_size, args.tied)
-    loss = softmax_ce_loss(pred)
+    """
+    pred:       symbol          (bptt*batch_size, vocab_size) 
+    states:     list of symbol  length = num_layers
+    states[0]:  symbol          (1, batch_size, hiddle_size)
+    """
+    loss = softmax_ce_loss(pred)                                                                #得到形状(bptt*batch_size,)
 
     # module
     module = CustomStatefulModule(loss, states, state_names=state_names, context=ctx)           #构造module，干什么的？
@@ -108,29 +113,29 @@ if __name__ == '__main__':
         # train
         total_loss = 0.0
         nbatch = 0
-        for batch in train_data:
-            module.forward(batch)
-            module.backward()
-            module.update(max_norm=args.clip * bptt * batch_size)
+        for batch in train_data:                                                                #batch: mx.io.DataBatch(data=self.getdata(), label=self.getlabel())
+            module.forward(batch)                                                               #前向传播
+            module.backward()                                                                   #计算梯度
+            module.update(max_norm=args.clip * bptt * batch_size)                               #更新参数
             # update metric
-            outputs = module.get_loss()
+            outputs = module.get_loss()                                                         #形状应该是(1,)？
             total_loss += mx.nd.sum(outputs[0]).asscalar()
             speedometer_param = BatchEndParam(epoch=epoch, nbatch=nbatch,
                                               eval_metric=None, locals=locals())
             speedometer(speedometer_param)
             if nbatch % args.log_interval == 0 and nbatch > 0:
-                cur_loss = total_loss / bptt / batch_size / args.log_interval
+                cur_loss = total_loss / bptt / batch_size / args.log_interval                   #total_loss除这么多东西？网络中的loss不是已经在bptt*batch_size上做了平均了吗？
                 logging.info('Iter[%d] Batch [%d]\tLoss:  %.7f,\tPerplexity:\t%.7f' % \
                              (epoch, nbatch, cur_loss, math.exp(cur_loss)))
                 total_loss = 0.0
             nbatch += 1
         # validation
-        valid_loss = evaluate(module, valid_data, epoch, 'Valid', bptt, batch_size)
+        valid_loss = evaluate(module, valid_data, epoch, 'Valid', bptt, batch_size)             #进行验证
         if valid_loss < best_loss:
             best_loss = valid_loss
             # test
-            test_loss = evaluate(module, test_data, epoch, 'Test', bptt, batch_size)
-        else:
+            test_loss = evaluate(module, test_data, epoch, 'Test', bptt, batch_size)            #如果出现更好的结果，则进行一次测试
+        else:                                                                                   #如果没有出现更好的结果，降低学习率
             optimizer.lr *= 0.25
-        train_data.reset()
+        train_data.reset()                                                                      #一个epoch训练结束之后，重置训练数据实例
     logging.info("Training completed. ")

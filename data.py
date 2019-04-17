@@ -118,7 +118,7 @@ def batchify(data, batch_size):
     """Reshape data into (num_example, batch_size)"""
     nbatch = data.shape[0] // batch_size            #获取batch的数量，1.从这里的逻辑来看，batch_size单位是token而不是句子？ 2.使用整数除法，尾巴舍弃不要了啊？
     data = data[:nbatch * batch_size]               #两个目的吧，一是转list，二是去除尾巴，即每个batch都是满的
-    data = data.reshape((batch_size, nbatch)).T     #转形状，为(batch数量，batch_size)
+    data = data.reshape((batch_size, nbatch)).T     #转形状，为(bptt*batch_num，batch_size)
     return data
 
 class CorpusIter(mx.io.DataIter):
@@ -133,8 +133,8 @@ class CorpusIter(mx.io.DataIter):
         """
         super(CorpusIter, self).__init__()
         self.batch_size = batch_size
-        self.provide_data = [('data', (bptt, batch_size), np.int32)]    #一个list，只有一个tuple元素，tuple有3个元素
-        self.provide_label = [('label', (bptt, batch_size))]            #一个list，只要一个tuple元素，tuple有2个元素
+        self.provide_data = [('data', (bptt, batch_size), np.int32)]    #一个list，只有一个tuple元素，tuple有3个元素。 输入数据的形状(bptt, batch_size)
+        self.provide_label = [('label', (bptt, batch_size))]            #一个list，只要一个tuple元素，tuple有2个元素。 输入label的形状(bptt, batch_size)
         self._index = 0
         self._bptt = bptt
         self._source = batchify(source, batch_size)                     #数据按batch分好，得到形状为(batch数量，batch size)的数据
@@ -154,7 +154,7 @@ class CorpusIter(mx.io.DataIter):
         """mxnet: get next data batch from iterator
         """
         if self.iter_next():                                                    #还有数据可取，则返回数据
-            return mx.io.DataBatch(data=self.getdata(), label=self.getlabel())
+            return mx.io.DataBatch(data=self.getdata(), label=self.getlabel())  #
         else:                                                                   #数据已经取完，则抛出终止迭代错误
             raise StopIteration
 
@@ -166,9 +166,9 @@ class CorpusIter(mx.io.DataIter):
     def getdata(self):
         """mxnet: get data of current batch
         """
-        return [self._next_data]
+        return [self._next_data]                                                #形状(1, bptt, batch_size)
 
     def getlabel(self):
         """mxnet: get label of current batch
         """
-        return [self._next_label]
+        return [self._next_label]                                               #形状(1, bptt, batch_size)

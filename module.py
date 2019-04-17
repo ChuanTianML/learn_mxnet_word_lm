@@ -54,12 +54,17 @@ class CustomStatefulModule():
         @param context:     
         @param initial_states:
         """
-        if isinstance(states, mx.symbol.Symbol):                                                    #states放进数组
+        if isinstance(states, mx.symbol.Symbol):                        #states放进数组
             states = [states]
-        self._net = mx.sym.Group(states + [loss])                                                   #将[states, loss]构成一个symbol
-        self._next_states = initial_states
-        self._module = mx.module.Module(self._net, data_names=data_names, label_names=label_names,  #Module is a basic module that wrap a Symbol. It is functionally the same as the FeedForward model, except under the module API.
-                                        context=context, state_names=state_names, **kwargs)
+        self._net = mx.sym.Group(states + [loss])                       #将[states, loss]构成一个symbol，这个symbol决定了module的输出，决定了module.get_outputs()的返回值
+        self._next_states = initial_states                              #形状是(num_layers*batch_size, 2, hidden_size)？
+        self._module = mx.module.Module(self._net,                      #symbol=self._net, 要获得这个symbol的前向传播结果
+                                        data_names=data_names, 
+                                        label_names=label_names,  
+                                        context=context, 
+                                        state_names=state_names, 
+                                        **kwargs)
+        #Module is a basic module that wrap a Symbol. It is functionally the same as the FeedForward model, except under the module API.
 
     def backward(self, out_grads=None):
         """Backward computation. 梯度回传
@@ -87,15 +92,23 @@ class CustomStatefulModule():
     def forward(self, data_batch, is_train=None, carry_state=True):
         """Forward computation. States from previous forward computation are carried
         to the current iteration if `carry_state` is set to `True`.
+        之前前向传播的states被带到这次迭代？ states是句子最后一个时间步的states，形状是(num_layers*batch_size, 2, hidden_size)，带到这次迭代做什么用？
+        @param data_batch: 一个batch的数据mx.io.DataBatch(data=self.getdata(), label=self.getlabel()), data和label的形状都是(1, bptt, batch_size)
+        @param is_train:
+        @param carry_state:
         """
         # propagate states from the previous iteration
-        if carry_state:
-            if isinstance(self._next_states, (int, float)):
-                self._module.set_states(value=self._next_states)
-            else:
+        if carry_state:                                                 #带过来上一次迭代（上一个batch）的states
+            if isinstance(self._next_states, (int, float)):             #统一设成一个值
+                self._module.set_states(value=self._next_states)        #mxnet: Sets value for states. Only one of the states & value can be specified.
+            else:                                                       #也是一个具有多维形状的states，用此设置这次的初始states？
                 self._module.set_states(states=self._next_states)
-        self._module.forward(data_batch, is_train=is_train)
-        outputs = self._module.get_outputs(merge_multi_context=False)
+        self._module.forward(data_batch, is_train=is_train)             #前向传播
+        outputs = self._module.get_outputs(merge_multi_context=False)   #mxnet: Gets outputs of the previous forward computation. 形状是()？
+        """outputs里面到底是什么东西？
+                从下面一行看，除了倒数第一个值，其他位置存的是states，states的形状是？
+                从另一处引用get_outputs()看，最后一个元素存的是loss，loss的形状是？根据对loss的处理，这里的loss是没有对btpp,batch_size取平均的
+        """
         self._next_states = outputs[:-1]
 
     def update(self, max_norm=None):
